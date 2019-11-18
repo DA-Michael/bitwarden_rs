@@ -65,9 +65,8 @@ fn icon(domain: String) -> Content<Vec<u8>> {
 }
 
 fn check_icon_domain_is_blacklisted(domain: &str) -> bool {
-    let mut is_blacklisted = false;
-    if CONFIG.icon_blacklist_non_global_ips() {
-        is_blacklisted = (domain, 0)
+    let mut is_blacklisted = CONFIG.icon_blacklist_non_global_ips()
+        && (domain, 0)
             .to_socket_addrs()
             .map(|x| {
                 for ip_port in x {
@@ -79,7 +78,6 @@ fn check_icon_domain_is_blacklisted(domain: &str) -> bool {
                 false
             })
             .unwrap_or(false);
-    }
 
     // Skip the regex check if the previous one is true already
     if !is_blacklisted {
@@ -114,7 +112,9 @@ fn get_icon(domain: &str) -> Vec<u8> {
         }
         Err(e) => {
             error!("Error downloading icon: {:?}", e);
-            mark_negcache(&path);
+            let miss_indicator = path + ".miss";
+            let empty_icon = Vec::new();
+            save_icon(&miss_indicator, &empty_icon);
             FALLBACK_ICON.to_vec()
         }
     }
@@ -168,11 +168,6 @@ fn icon_is_negcached(path: &str) -> bool {
         // The marker is missing or inaccessible in some way.
         Err(_) => false,
     }
-}
-
-fn mark_negcache(path: &str) {
-    let miss_indicator = path.to_owned() + ".miss";
-    File::create(&miss_indicator).expect("Error creating negative cache marker");
 }
 
 fn icon_is_expired(path: &str) -> bool {
@@ -279,11 +274,7 @@ fn get_page_with_cookies(url: &str, cookie_str: &str) -> Result<Response, Error>
     }
 
     if cookie_str.is_empty() {
-        CLIENT
-            .get(url)
-            .send()?
-            .error_for_status()
-            .map_err(Into::into)
+        CLIENT.get(url).send()?.error_for_status().map_err(Into::into)
     } else {
         CLIENT
             .get(url)
@@ -401,11 +392,17 @@ fn download_icon(domain: &str) -> Result<Vec<u8>, Error> {
 }
 
 fn save_icon(path: &str, icon: &[u8]) {
-    create_dir_all(&CONFIG.icon_cache_folder()).expect("Error creating icon cache");
-
-    if let Ok(mut f) = File::create(path) {
-        f.write_all(icon).expect("Error writing icon file");
-    };
+    match File::create(path) {
+        Ok(mut f) => {
+            f.write_all(icon).expect("Error writing icon file");
+        }
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => {
+            create_dir_all(&CONFIG.icon_cache_folder()).expect("Error creating icon cache");
+        }
+        Err(e) => {
+            info!("Icon save error: {:?}", e);
+        }
+    }
 }
 
 fn _header_map() -> HeaderMap {

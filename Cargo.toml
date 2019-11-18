@@ -41,8 +41,8 @@ rmpv = "0.4.2"
 chashmap = "2.2.2"
 
 # A generic serialization/deserialization framework
-serde = "1.0.101"
-serde_derive = "1.0.101"
+serde = "1.0.102"
+serde_derive = "1.0.102"
 serde_json = "1.0.41"
 
 # Logging
@@ -117,5 +117,9 @@ percent-encoding = "2.1.0"
 rmp = { git = 'https://github.com/3Hren/msgpack-rust', rev = 'd6c6c672e470341207ed9feb69b56322b5597a11' }
 
 # Use newest ring
-rocket = { git = 'https://github.com/SergioBenitez/Rocket', rev = '4e6a7ddd5fffe66185baade28b421b7e6a46c70d' }
-rocket_contrib = { git = 'https://github.com/SergioBenitez/Rocket', rev = '4e6a7ddd5fffe66185baade28b421b7e6a46c70d' }
+rocket = { git = 'https://github.com/SergioBenitez/Rocket', rev = 'b95b6765e1cc8be7c1e7eaef8a9d9ad940b0ac13' }
+rocket_contrib = { git = 'https://github.com/SergioBenitez/Rocket', rev = 'b95b6765e1cc8be7c1e7eaef8a9d9ad940b0ac13' }
+
+# Use git version for timeout fix #706
+lettre = { git = 'https://github.com/lettre/lettre', rev = '24d694db3be017d82b1cdc8bf9da601420b31bb0' }
+lettre_email = { git = 'https://github.com/lettre/lettre', rev = '24d694db3be017d82b1cdc8bf9da601420b31bb0' }

@@ -243,6 +243,8 @@ make_config! {
         disable_icon_download:  bool,   true,   def,    false;
         /// Allow new signups |> Controls if new users can register. Note that while this is disabled, users could still be invited
         signups_allowed:        bool,   true,   def,    true;
+        /// Allow signups only from this list of comma-separated domains
+        signups_domains_whitelist: String, true, def,   "".to_string();
         /// Allow invitations |> Controls whether users can be invited by organization admins, even when signups are disabled
         invitations_allowed:    bool,   true,   def,    true;
         /// Password iterations |> Number of server-side passwords hashing iterations.
@@ -274,6 +276,10 @@ make_config! {
         /// Disable Two-Factor remember |> Enabling this would force the users to use a second factor to login every time.
         /// Note that the checkbox would still be present, but ignored.
         disable_2fa_remember:   bool,   true,   def,    false;
+
+        /// Disable authenticator time drifted codes to be valid |> Enabling this only allows the current TOTP code to be valid
+        /// TOTP codes of the previous and next 30 seconds will be invalid.
+        authenticator_disable_time_drift:     bool,   true,  def,    false;
 
         /// Require new device emails |> When a user logs in an email is required to be sent.
         /// If sending the email fails the login attempt will fail.
@@ -350,6 +356,8 @@ make_config! {
         smtp_password:          Pass,   true,   option;
         /// Json form auth mechanism |> Defaults for ssl is "Plain" and "Login" and nothing for non-ssl connections. Possible values: ["Plain", "Login", "Xoauth2"]
         smtp_auth_mechanism:    String, true,   option;
+        /// SMTP connection timeout |> Number of seconds when to stop trying to connect to the SMTP server
+        smtp_timeout:           u64,     true,   def,     15;
     },
 
     /// Email 2FA Settings
@@ -368,22 +376,16 @@ make_config! {
 fn validate_config(cfg: &ConfigItems) -> Result<(), Error> {
     let db_url = cfg.database_url.to_lowercase();
     
-    if cfg!(feature = "sqlite") {
-        if db_url.starts_with("mysql:") || db_url.starts_with("postgresql:") {
-            err!("`DATABASE_URL` is meant for MySQL or Postgres, while this server is meant for SQLite")
-        }
+    if cfg!(feature = "sqlite") && (db_url.starts_with("mysql:") || db_url.starts_with("postgresql:")) {
+        err!("`DATABASE_URL` is meant for MySQL or Postgres, while this server is meant for SQLite")
     }
 
-    if cfg!(feature = "mysql") {
-        if !db_url.starts_with("mysql:") {
-            err!("`DATABASE_URL` should start with mysql: when using the MySQL server")
-        }
+    if cfg!(feature = "mysql") && !db_url.starts_with("mysql:") {
+        err!("`DATABASE_URL` should start with mysql: when using the MySQL server")
     }
 
-    if cfg!(feature = "postgresql") {
-        if !db_url.starts_with("postgresql:") {
-            err!("`DATABASE_URL` should start with postgresql: when using the PostgreSQL server")
-        }
+    if cfg!(feature = "postgresql") && !db_url.starts_with("postgresql:") {
+        err!("`DATABASE_URL` should start with postgresql: when using the PostgreSQL server")
     }
 
     if let Some(ref token) = cfg.admin_token {
@@ -489,6 +491,16 @@ impl Config {
             usr.merge(&other, false)
         };
         self.update_config(builder)
+    }
+
+    pub fn can_signup_user(&self, email: &str) -> bool {
+        let e: Vec<&str> = email.rsplitn(2, "@").collect();
+        if e.len() != 2 || e[0].is_empty() || e[1].is_empty() {
+            warn!("Failed to parse email address '{}'", email);
+            return false
+        }
+        
+        self.signups_domains_whitelist().split(",").any(|d| d == e[0])
     }
 
     pub fn delete_user_config(&self) -> Result<(), Error> {

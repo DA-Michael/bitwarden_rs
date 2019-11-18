@@ -49,8 +49,7 @@ RUN sed 's/^deb/deb-src/' /etc/apt/sources.list > \
     && apt-get install -y \
         --no-install-recommends \
         libssl-dev:arm64 \
-        libc6-dev:arm64 \
-        libmariadb-dev:arm64
+        libc6-dev:arm64
 
 ENV CC_aarch64_unknown_linux_gnu="/usr/bin/aarch64-linux-gnu-gcc"
 ENV CROSS_COMPILE="1"
@@ -103,4 +102,5 @@ COPY docker/healthcheck.sh ./healthcheck.sh
 HEALTHCHECK --interval=30s --timeout=3s CMD sh healthcheck.sh || exit 1
 
 # Configures the startup!
-CMD ["./bitwarden_rs"]
+WORKDIR /
+CMD ["/bitwarden_rs"]
