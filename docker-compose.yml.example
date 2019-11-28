@@ -1,0 +1,24 @@
+#docker-compose.yml
+
+version: "3"
+
+services:
+  bitwarden:
+    image: dockername/docker ##name of local or downloaded image
+    restart: always
+    volumes:
+      - /bw-data:/data
+      - /root/github/vault:/web-vault 
+    ports:
+      - 80:80
+    environment:
+      WEBSOCKET_ENABLED: "true" # Required to use websockets
+      SIGNUPS_ALLOWED: "false" # set to false to disable signups
+      SMTP_HOST: "server.domain.tld"
+      SMTP_FROM: "example@domain.tld"
+      SMTP_PORT: "587"
+      SMTP_SSL: "true"
+      SMTP_USERNAME: "example@domain.tld"
+      SMTP_PASSWORD: "Secure_Password"
+      ADMIN_TOKEN: "AdmitToken"
+      DOMAIN: "https://host.domain.tld"
