@@ -90,7 +90,7 @@ lazy_static = "1.4.0"
 derive_more = "0.99.2"
 
 # Numerical libraries
-num-traits = "0.2.9"
+num-traits = "0.2.10"
 num-derive = "0.3.0"
 
 # Email libraries
@@ -105,9 +105,10 @@ handlebars = "2.0.2"
 # For favicon extraction from main website
 soup = "0.4.1"
 regex = "1.3.1"
+data-url = "0.1.0"
 
 # Required for SSL support for PostgreSQL
-openssl = { version = "0.10.25", optional = true }
+openssl = { version = "0.10.26", optional = true }
 
 # URL encoding library
 percent-encoding = "2.1.0"
@@ -123,3 +124,6 @@ rocket_contrib = { git = 'https://github.com/SergioBenitez/Rocket', rev = 'b95b6
 # Use git version for timeout fix #706
 lettre = { git = 'https://github.com/lettre/lettre', rev = '24d694db3be017d82b1cdc8bf9da601420b31bb0' }
 lettre_email = { git = 'https://github.com/lettre/lettre', rev = '24d694db3be017d82b1cdc8bf9da601420b31bb0' }
+
+# For favicon extraction from main website
+data-url = { git = 'https://github.com/servo/rust-url', package="data-url", rev = '7f1bd6ce1c2fde599a757302a843a60e714c5f72' }
