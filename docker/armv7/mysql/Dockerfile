@@ -7,24 +7,14 @@
 ####################### VAULT BUILD IMAGE  #######################
 FROM rust:1.40 as vault
 
-ENV VAULT_VERSION "v2.12.0b"
+ENV VAULT_VERSION "v2.12.0d"
 
 ENV URL "https://github.com/dani-garcia/bw_web_builds/releases/download/$VAULT_VERSION/bw_web_$VAULT_VERSION.tar.gz"
 
 # Build time options to avoid dpkg warnings and help with reproducible builds.
-ARG DEBIAN_FRONTEND=noninteractive
-ARG LANG=C.UTF-8
-ARG TZ=UTC
-ARG TERM=xterm-256color
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 TZ=UTC TERM=xterm-256color
 
-RUN apt-get update \
-    && apt-get install -y \
-        --no-install-recommends \
-        curl \
-        tar
-
-RUN mkdir /web-vault
-WORKDIR /web-vault
+WORKDIR /
 
 SHELL ["/bin/bash", "-o", "nounset", "-o", "pipefail", "-o", "errexit", "-c"]
 
@@ -40,10 +30,7 @@ FROM rust:1.40 as build
 ARG DB=mysql
 
 # Build time options to avoid dpkg warnings and help with reproducible builds.
-ARG DEBIAN_FRONTEND=noninteractive
-ARG LANG=C.UTF-8
-ARG TZ=UTC
-ARG TERM=xterm-256color
+ENV DEBIAN_FRONTEND=noninteractive LANG=C.UTF-8 TZ=UTC TERM=xterm-256color
 
 # Don't download rust docs
 RUN rustup set profile minimal

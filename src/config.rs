@@ -1,8 +1,10 @@
 use std::process::exit;
 use std::sync::RwLock;
 
+use reqwest::Url;
+
 use crate::error::Error;
-use crate::util::get_env;
+use crate::util::{get_env, get_env_bool};
 
 lazy_static! {
     pub static ref CONFIG: Config = Config::load().unwrap_or_else(|e| {
@@ -23,13 +25,13 @@ macro_rules! make_config {
         $group:ident $(: $group_enabled:ident)? {
         $(
             $(#[doc = $doc:literal])+
-            $name:ident : $ty:ty, $editable:literal, $none_action:ident $(, $default:expr)?;
+            $name:ident : $ty:ident, $editable:literal, $none_action:ident $(, $default:expr)?;
         )+},
     )+) => {
         pub struct Config { inner: RwLock<Inner> }
 
         struct Inner {
-            templates: Handlebars,
+            templates: Handlebars<'static>,
             config: ConfigItems,
 
             _env: ConfigBuilder,
@@ -50,9 +52,9 @@ macro_rules! make_config {
 
                 let mut builder = ConfigBuilder::default();
                 $($(
-                    builder.$name = get_env(&stringify!($name).to_uppercase());
+                    builder.$name = make_config! { @getenv &stringify!($name).to_uppercase(), $ty };
                 )+)+
-
+                
                 builder
             }
 
@@ -189,6 +191,10 @@ macro_rules! make_config {
         let f: &dyn Fn(&ConfigItems) -> _ = &$default_fn;
         f($config)
     }};
+
+    ( @getenv $name:expr, bool ) => { get_env_bool($name) };
+    ( @getenv $name:expr, $ty:ident ) => { get_env($name) };
+
 }
 
 //STRUCTURE:
@@ -236,11 +242,20 @@ make_config! {
         domain:                 String, true,   def,    "http://localhost".to_string();
         /// Domain Set |> Indicates if the domain is set by the admin. Otherwise the default will be used.
         domain_set:             bool,   false,  def,    false;
+        /// Domain origin |> Domain URL origin (in https://example.com:8443/path, https://example.com:8443 is the origin)
+        domain_origin:          String, false,  auto,   |c| extract_url_origin(&c.domain);
+        /// Domain path |> Domain URL path (in https://example.com:8443/path, /path is the path)
+        domain_path:            String, false,  auto,   |c| extract_url_path(&c.domain);
         /// Enable web vault
         web_vault_enabled:      bool,   false,  def,    true;
 
         /// HIBP Api Key |> HaveIBeenPwned API Key, request it here: https://haveibeenpwned.com/API/Key
         hibp_api_key:           Pass,   true,   option;
+
+        /// Per-user attachment limit (KB) |> Limit in kilobytes for a users attachments, once the limit is exceeded it won't be possible to upload more
+        user_attachment_limit:  i64,    true,   option;
+        /// Per-organization attachment limit (KB) |> Limit in kilobytes for an organization attachments, once the limit is exceeded it won't be possible to upload more
+        org_attachment_limit:   i64,    true,   option;
 
         /// Disable icon downloads |> Set to true to disable icon downloading, this would still serve icons from
         /// $ICON_CACHE_FOLDER, but it won't produce any external network request. Needs to set $ICON_CACHE_TTL to 0,
@@ -267,6 +282,9 @@ make_config! {
 
         /// Admin page token |> The token used to authenticate in this very same page. Changing it here won't deauthorize the current session
         admin_token:            Pass,   true,   option;
+
+        /// Invitation organization name |> Name shown in the invitation emails that don't come from a specific organization
+        invitation_org_name:    String, true,   def,    "Bitwarden_RS".to_string();
     },
 
     /// Advanced settings
@@ -295,7 +313,7 @@ make_config! {
 
         /// Disable authenticator time drifted codes to be valid |> Enabling this only allows the current TOTP code to be valid
         /// TOTP codes of the previous and next 30 seconds will be invalid.
-        authenticator_disable_time_drift:     bool,   true,  def,    false;
+        authenticator_disable_time_drift: bool, true, def, false;
 
         /// Require new device emails |> When a user logs in an email is required to be sent.
         /// If sending the email fails the login attempt will fail.
@@ -319,6 +337,9 @@ make_config! {
 
         /// Bypass admin page security (Know the risks!) |> Disables the Admin Token for the admin page so you may use your own auth in-front
         disable_admin_token:    bool,   true,   def,    false;
+
+        /// Allowed iframe ancestors (Know the risks!) |> Allows other domains to embed the web vault into an iframe, useful for embedding into secure intranets
+        allowed_iframe_ancestors: String, true, def,    String::new();
     },
 
     /// Yubikey settings
@@ -399,9 +420,14 @@ fn validate_config(cfg: &ConfigItems) -> Result<(), Error> {
     if cfg!(feature = "postgresql") && !db_url.starts_with("postgresql:") {
         err!("`DATABASE_URL` should start with postgresql: when using the PostgreSQL server")
     }
+    
+    let dom = cfg.domain.to_lowercase(); 
+    if !dom.starts_with("http://") && !dom.starts_with("https://") {
+        err!("DOMAIN variable needs to contain the protocol (http, https). Use 'http[s]://bw.example.com' instead of 'bw.example.com'"); 
+    }
 
     if let Some(ref token) = cfg.admin_token {
-        if token.trim().is_empty() {
+        if token.trim().is_empty() && !cfg.disable_admin_token {
             err!("`ADMIN_TOKEN` is enabled but has an empty value. To enable the admin page without token, use `DISABLE_ADMIN_TOKEN`")
         }
     }
@@ -440,6 +466,29 @@ fn validate_config(cfg: &ConfigItems) -> Result<(), Error> {
     }
 
     Ok(())
+}
+
+/// Extracts an RFC 6454 web origin from a URL.
+fn extract_url_origin(url: &str) -> String {
+    match Url::parse(url) {
+        Ok(u) => u.origin().ascii_serialization(),
+        Err(e) => {
+            println!("Error validating domain: {}", e);
+            String::new()
+        }
+    }
+}
+
+/// Extracts the path from a URL.
+/// All trailing '/' chars are trimmed, even if the path is a lone '/'.
+fn extract_url_path(url: &str) -> String {
+    match Url::parse(url) {
+        Ok(u) => u.path().trim_end_matches('/').to_string(),
+        Err(_) => {
+            // We already print it in the method above, no need to do it again
+            String::new()
+        }
+    }
 }
 
 impl Config {
@@ -506,7 +555,12 @@ impl Config {
             warn!("Failed to parse email address '{}'", email);
             return false;
         }
-        self.signups_domains_whitelist().split(',').any(|d| d == e[0])
+        
+        // Allow signups if the whitelist is empty/not configured
+        // (it doesn't contain any domains), or if it matches at least
+        // one domain.
+        let whitelist_str = self.signups_domains_whitelist();
+        ( whitelist_str.is_empty() && CONFIG.signups_allowed() )|| whitelist_str.split(',').filter(|s| !s.is_empty()).any(|d| d == e[0])
     }
 
     pub fn delete_user_config(&self) -> Result<(), Error> {
@@ -568,7 +622,7 @@ impl Config {
     ) -> Result<String, crate::error::Error> {
         if CONFIG.reload_templates() {
             warn!("RELOADING TEMPLATES");
-            let hb = load_templates(CONFIG.templates_folder().as_ref());
+            let hb = load_templates(CONFIG.templates_folder());
             hb.render(name, data).map_err(Into::into)
         } else {
             let hb = &CONFIG.inner.read().unwrap().templates;
@@ -577,17 +631,18 @@ impl Config {
     }
 }
 
-use handlebars::{
-    Context, Handlebars, Helper, HelperDef, HelperResult, Output, RenderContext, RenderError, Renderable,
-};
+use handlebars::{Context, Handlebars, Helper, HelperResult, Output, RenderContext, RenderError, Renderable};
 
-fn load_templates(path: &str) -> Handlebars {
+fn load_templates<P>(path: P) -> Handlebars<'static>
+where
+    P: AsRef<std::path::Path>,
+{
     let mut hb = Handlebars::new();
     // Error on missing params
     hb.set_strict_mode(true);
     // Register helpers
-    hb.register_helper("case", Box::new(CaseHelper));
-    hb.register_helper("jsesc", Box::new(JsEscapeHelper));
+    hb.register_helper("case", Box::new(case_helper));
+    hb.register_helper("jsesc", Box::new(js_escape_helper));
 
     macro_rules! reg {
         ($name:expr) => {{
@@ -626,48 +681,44 @@ fn load_templates(path: &str) -> Handlebars {
     hb
 }
 
-pub struct CaseHelper;
+fn case_helper<'reg, 'rc>(
+    h: &Helper<'reg, 'rc>,
+    r: &'reg Handlebars,
+    ctx: &'rc Context,
+    rc: &mut RenderContext<'reg, 'rc>,
+    out: &mut dyn Output,
+) -> HelperResult {
+    let param = h
+        .param(0)
+        .ok_or_else(|| RenderError::new("Param not found for helper \"case\""))?;
+    let value = param.value().clone();
 
-impl HelperDef for CaseHelper {
-    fn call<'reg: 'rc, 'rc>(
-        &self,
-        h: &Helper<'reg, 'rc>,
-        r: &'reg Handlebars,
-        ctx: &Context,
-        rc: &mut RenderContext<'reg>,
-        out: &mut dyn Output,
-    ) -> HelperResult {
-        let param = h.param(0).ok_or_else(|| RenderError::new("Param not found for helper \"case\""))?;
-        let value = param.value().clone();
-
-        if h.params().iter().skip(1).any(|x| x.value() == &value) {
-            h.template().map(|t| t.render(r, ctx, rc, out)).unwrap_or(Ok(()))
-        } else {
-            Ok(())
-        }
+    if h.params().iter().skip(1).any(|x| x.value() == &value) {
+        h.template().map(|t| t.render(r, ctx, rc, out)).unwrap_or(Ok(()))
+    } else {
+        Ok(())
     }
 }
 
-pub struct JsEscapeHelper;
+fn js_escape_helper<'reg, 'rc>(
+    h: &Helper<'reg, 'rc>,
+    _r: &'reg Handlebars,
+    _ctx: &'rc Context,
+    _rc: &mut RenderContext<'reg, 'rc>,
+    out: &mut dyn Output,
+) -> HelperResult {
+    let param = h
+        .param(0)
+        .ok_or_else(|| RenderError::new("Param not found for helper \"js_escape\""))?;
 
-impl HelperDef for JsEscapeHelper {
-    fn call<'reg: 'rc, 'rc>(
-        &self,
-        h: &Helper<'reg, 'rc>,
-        _: &'reg Handlebars,
-        _: &Context,
-        _: &mut RenderContext<'reg>,
-        out: &mut dyn Output,
-    ) -> HelperResult {
-        let param = h.param(0).ok_or_else(|| RenderError::new("Param not found for helper \"js_escape\""))?;
+    let value = param
+        .value()
+        .as_str()
+        .ok_or_else(|| RenderError::new("Param for helper \"js_escape\" is not a String"))?;
 
-        let value =
-            param.value().as_str().ok_or_else(|| RenderError::new("Param for helper \"js_escape\" is not a String"))?;
+    let escaped_value = value.replace('\\', "").replace('\'', "\\x22").replace('\"', "\\x27");
+    let quoted_value = format!("&quot;{}&quot;", escaped_value);
 
-        let escaped_value = value.replace('\\', "").replace('\'', "\\x22").replace('\"', "\\x27");
-        let quoted_value = format!("&quot;{}&quot;", escaped_value);
-
-        out.write(&quoted_value)?;
-        Ok(())
-    }
+    out.write(&quoted_value)?;
+    Ok(())
 }

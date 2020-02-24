@@ -1,8 +1,10 @@
 use lettre::smtp::authentication::Credentials;
 use lettre::smtp::authentication::Mechanism as SmtpAuthMechanism;
 use lettre::smtp::ConnectionReuseParameters;
-use lettre::{ClientSecurity, ClientTlsParameters, SmtpClient, SmtpTransport, Transport};
-use lettre_email::{EmailBuilder, MimeMultipartType, PartBuilder};
+use lettre::{
+    builder::{EmailBuilder, MimeMultipartType, PartBuilder},
+    ClientSecurity, ClientTlsParameters, SmtpClient, SmtpTransport, Transport,
+};
 use native_tls::{Protocol, TlsConnector};
 use percent_encoding::{percent_encode, NON_ALPHANUMERIC};
 use quoted_printable::encode_to_str;
@@ -257,6 +259,18 @@ pub fn send_change_email(address: &str, token: &str) -> EmptyResult {
 }
 
 fn send_email(address: &str, subject: &str, body_html: &str, body_text: &str) -> EmptyResult {
+    let address_split: Vec<&str> = address.rsplitn(2, '@').collect();
+    if address_split.len() != 2 {
+        err!("Invalid email address (no @)");
+    }
+
+    let domain_puny = match idna::domain_to_ascii_strict(address_split[0]) {
+        Ok(d) => d,
+        Err(_) => err!("Can't convert email domain to ASCII representation"),
+    };
+
+    let address = format!("{}@{}", address_split[1], domain_puny);
+
     let html = PartBuilder::new()
         .body(encode_to_str(body_html))
         .header(("Content-Type", "text/html; charset=utf-8"))
@@ -284,12 +298,11 @@ fn send_email(address: &str, subject: &str, body_html: &str, body_text: &str) ->
 
     let mut transport = mailer();
 
-    let result = transport
-        .send(email.into())
-        .map_err(|e| Error::new("Error sending email", e.to_string()))
-        .and(Ok(()));
+    let result = transport.send(email);
 
     // Explicitly close the connection, in case of error
     transport.close();
-    result
+    
+    result?;
+    Ok(())
 }
