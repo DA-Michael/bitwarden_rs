@@ -2,7 +2,7 @@ mod accounts;
 mod ciphers;
 mod folders;
 mod organizations;
-pub(crate) mod two_factor;
+pub mod two_factor;
 
 pub fn routes() -> Vec<Route> {
     let mut mod_routes = routes![
@@ -146,10 +146,10 @@ fn hibp_breach(username: String) -> JsonResult {
         username
     );
 
-    use reqwest::{header::USER_AGENT, Client};
+    use reqwest::{header::USER_AGENT, blocking::Client};
 
     if let Some(api_key) = crate::CONFIG.hibp_api_key() {
-        let hibp_client = Client::builder().use_sys_proxy().build()?;
+        let hibp_client = Client::builder().build()?;
 
         let res = hibp_client
             .get(&url)
